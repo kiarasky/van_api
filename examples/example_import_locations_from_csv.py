@@ -34,7 +34,7 @@ def main():
         csv_file = '/var/lib/postgresql/kiarasky/kiara/importer/VA_locations/VA_weddings.csv'			 
         count = ok = skip = tags = 0 
         try:
-            conn = psycopg2.connect("dbname='aux_location_db' host='/var/run/postgresql'") 			# TODO pass these also from the conf file
+            conn = psycopg2.connect("dbname='aux_location_db' host='/var/run/postgresql'") 			# TODO pass these also from the conf file? or use and delete always the same aux table?
             conn.autocommit = True	
         except:
             print "I am unable to connect to the database"
@@ -53,17 +53,17 @@ def main():
         else:
             print "geonames table already there"
         #
-        for loc_dict, categories in read_locations(csv_file, conn, file_cfg):
+        for loc_dict, tagcat_dictionary in read_locations(csv_file, conn, file_cfg):
             count += 1
             url = 'http://api.metropublisher.com/' + loc_dict['urlname']				 
             namespace = uuid.NAMESPACE_URL
             url = url.encode('utf-8')
             new_url = '%s/%s/%s' % (file_cfg['API_KEY'], str(file_cfg['INSTANCE_ID']), url) 
             loc_uuid = uuid.uuid3(namespace, new_url)		# use also API_KEY and INSTANCE_ID - repeatable uuids x idempotent api 	
-            l_status = put_location(api, loc_dict, loc_uuid)
+            l_status = put_location(api, loc_dict, loc_uuid, file_cfg['INSTANCE_ID'])
             # tags
             if file_cfg['has_tags'] = True:
-                t_status = add_tags(api, categories, loc_uuid)
+                t_status = add_tags(api, tagcat_dictionary, loc_uuid, file_cfg['INSTANCE_ID'])  
                 if t_status == 1:
                     tags += 1
             if l_status == 1:
@@ -120,11 +120,11 @@ _default = CsvFile('required','required','required','required','required','requi
 CSVFILES = [_default._replace(**t) for t in CSVFILES]
 
 
-def read_locations(csv_file, conn, file_cfg): # TODo Modify this to use the config
+def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the config
     """This function reads the csv, and based on the configuration creates and yelds location dictionaries for the API
     """
     counter = 0
-    categories = {}
+    tagcat_dictionary = {}
     with open(csv_file, 'rb') as csvfile:
         next(csvfile)							
         reader = csv.reader(csvfile, delimiter=',')			
@@ -134,29 +134,30 @@ def read_locations(csv_file, conn, file_cfg): # TODo Modify this to use the conf
             try:
                 row = decode_row(row, file_cfg['decode'])
                 if file_cfg['Namedtuple']:	  		
-                    row = file_cfg['Namedtuple']._make(encode_utf(row)) 		# TODO use namedtuple??? no, there are mandatory fields, use those!!!
+                    row = file_cfg['Namedtuple']._make(encode_utf(row)) 		# TODO use namedtuple??? no, there are mandatory fields, use those to generalize!
                 else:
                     print "check conf file"
                     return None
                 loc_dict['title'] = row.title or None 
                 if loc_dict['title'] is None: 
                     raise NotImplementedError # skip
-                urlname = suggest_urlname(row.title).lower()
-                urlname_count = 0
-                while urlname in LOCS:
-                    urlname_count += 1
-                    urlname = urlname + '-%s' % urlname_count
-                    print 'DUPLICATE URLNAME, TRYING', urlname	
-                LOCS.append(urlname)
+                if file_cfg['urlname']:											# TODO generalize with unique_id_key (can be also uuid)
+                    urlname = row.urlname
+                else:
+                    urlname = suggest_urlname(row.title).lower()				# we create the urlname, TODO make sure it's uniq
+                    urlname_count = 0
+                    while urlname in LOCS:
+                        urlname_count += 1
+                        urlname = urlname + '-%s' % urlname_count
+                        print 'DUPLICATE URLNAME, TRYING', urlname	
+                    LOCS.append(urlname)
                 loc_dict['urlname'] = urlname
                 loc_dict['street'] = row.street or None
                 loc_dict['pcode'] = row.postalcode or None
                 loc_dict['phone'] = row.phone or None
                 #
-                # specific for VA, USE CONF
-                categories['cat_region'] = row.cat_region
-                categories['cat_category'] = row.cat_category
-                categories['cat_city'] = row.city
+                # TODO create tagcat_dictionary {tag1:cat1,tag2:None,tag3:cat1,cat2} - depending on the config file
+                #
                 if row.web:
                     if not (row.web.startswith('http://') or row.web.startswith('https://')):
                         web = 'http://' + row.web
@@ -164,7 +165,7 @@ def read_locations(csv_file, conn, file_cfg): # TODo Modify this to use the conf
                         web = row.web
                     loc_dict['website'] = web	
                 loc_dict['created'] = loc_dict['modified'] = str(datetime.datetime.now() - timedelta(days=2))	# yesterday's date
-                loc_dict['state'] = 'published' # TODO general, get status from csv												
+                loc_dict['state'] = row.status or 'draft' # TODO general, get status from csv												
                 address_key = ''
                 gcity = row.city
                 if row.street:
@@ -214,7 +215,7 @@ def read_locations(csv_file, conn, file_cfg): # TODo Modify this to use the conf
                         conn.commit()
                 loc_dict['geoname_id'] = int(geoname)
                 counter += 1
-                yield loc_dict, categories
+                yield loc_dict, tagcat_dictionary 
             except:
                 print 'Failed on {}'.format(row)
                 raise
