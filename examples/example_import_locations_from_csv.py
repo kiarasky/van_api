@@ -18,6 +18,8 @@ from van_api import *
 from van_api import van_api
 import psycopg2
 
+from mp.importer.csv import LocationUpdater, TagUpdater
+
 
 COORDS_CACHE = {}	  
 GEONAMES_CACHE = {}					
@@ -59,11 +61,13 @@ def main():
             namespace = uuid.NAMESPACE_URL
             url = url.encode('utf-8')
             new_url = '%s/%s/%s' % (file_cfg['API_KEY'], str(file_cfg['INSTANCE_ID']), url) 
-            loc_uuid = uuid.uuid3(namespace, new_url)		# use also API_KEY and INSTANCE_ID - repeatable uuids x idempotent api 	
-            l_status = put_location(api, loc_dict, loc_uuid, file_cfg['INSTANCE_ID'])
+            loc_uuid = uuid.uuid3(namespace, new_url)		# use also API_KEY and INSTANCE_ID - repeatable uuids x idempotent api 
+            locupdater = LocationUpdater(api, file_cfg['INSTANCE_ID'])	
+            l_status = locupdater.upsert_location(loc_dict, loc_uuid)  
             # tags
             if file_cfg['has_tags'] = True:
-                t_status = add_tags(api, tagcat_dictionary, loc_uuid, file_cfg['INSTANCE_ID'])  
+                tagupdater = TagUpdater(api, file_cfg['INSTANCE_ID'])	
+                t_status = tagupdater.upsert_tags(tagcat_dictionary, loc_uuid)  
                 if t_status == 1:
                     tags += 1
             if l_status == 1:
@@ -87,23 +91,24 @@ If the client data are lacking it, we: 1) import locations and assign one extern
 
 
 CSVFILES = [
-        # credentials are also in the config file
+        # 0 is demo instance
         # add error message if required fields missing!
         dict(
-            client='MP-template',			# we propose a csv template for which there's no need to change the config
-            uuid_import_id = 'http://client.com/import/1/',
-            INSTANCE_ID = 1,
+            client='MP-template',			# we propose a csv template for which the script is ready-to-use
+            uuid_import_id = 'http://client.com/import/0/',
+            INSTANCE_ID = 0, 
             API_KEY = 'mxvsm129bm7RgcGRYedzLersZXGQSwQjMiyilovZL7A',
             API_SECRET = 'hSBADtfwcEnxeatj',
             GOOGLE_API_KEY = 'AIzaSyDrFNq9li1esIyHypfNh1IZ0w4FcPDeOVs',
             GEONAME_USER = 'kiarasky2015',  
             aux_database = 'aux_location_db',
-            namedtuple = ('MP-template',['external_unique_id', 'id', 'urlname', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url','region', 'country','creation_date','image','thumbnail','video','facebook','twitter','tags:category|tag2:category2'])
+            external_unique_id = 'uuid' 			# they give us an unique uuid
+            namedtuple = ('MP-template',['uuid','id', 'urlname', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url','region', 'country','creation_date','image','thumbnail','video','facebook','twitter','tag1:category1|tag2:category1,category2|tag3:None'])
             ),
         dict(
             client='VALiving',
-            uuid_import_id = 'http://client.com/import/1/',
-            INSTANCE_ID = 1,
+            uuid_import_id = 'http://client.com/import/0/',
+            INSTANCE_ID = 0,
             API_KEY = 'mxvsm129bm7RgcGRYedzLersZXGQSwQjMiyilovZL7A',
             API_SECRET = 'hSBADtfwcEnxeatj',
             GOOGLE_API_KEY = 'AIzaSyDrFNq9li1esIyHypfNh1IZ0w4FcPDeOVs',
@@ -141,7 +146,7 @@ def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the conf
                 loc_dict['title'] = row.title or None 
                 if loc_dict['title'] is None: 
                     raise NotImplementedError # skip
-                if file_cfg['urlname']:											# TODO generalize with unique_id_key (can be also uuid)
+                if file_cfg['urlname']:											# TODO generalize with unique_id_key or use uuid?
                     urlname = row.urlname
                 else:
                     urlname = suggest_urlname(row.title).lower()				# we create the urlname, TODO make sure it's uniq
