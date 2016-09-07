@@ -121,7 +121,8 @@ _default = CsvFile('required','required','required','required','required','requi
 CSVFILES = [_default._replace(**t) for t in CSVFILES]
 
 
-def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the config
+
+def read_locations_new(csv_file, conn, file_cfg): # TODO Modify this to use the config
     """This function reads the csv, and based on the configuration creates and yelds location dictionaries for the API
     """
     counter = 0
@@ -131,9 +132,26 @@ def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the conf
         reader = csv.reader(csvfile, delimiter=',')			
         LOCS = []
         for row in reader:
-            loc_dict = {} 					
+            loc_dict = tagcat_dictionary = {} 					
             try:
-                row = decode_row(row, file_cfg['decode'])
+                row = decode_row(row, file_cfg['decode']) # if it can decode, passes to the create_loc_dict function
+                loc_dict, tagcat_dictionary = prepare_location_data(row, file_cfg)
+                counter += 1
+                yield loc_dict, tagcat_dictionary 
+            except:
+                print 'Failed on {}'.format(row)
+                raise
+
+
+def prepare_location_data(row, file_cfg): 
+    """This function gets a row and, based on the configuration, creates location dictionary for the API and tagcategory dictionary
+    """
+    # decide how to load the data, if use Namedtuple or if putting the columns somehow in the config
+    # if fails, return None
+    # TODO implement uuid option 
+    if True:
+        if True:
+            if True:
                 if file_cfg['Namedtuple']:	  		
                     row = file_cfg['Namedtuple']._make(encode_utf(row)) 		# TODO use namedtuple??? load each csv table on the correct namedtuple
                 else:
@@ -224,11 +242,8 @@ def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the conf
                         cur.execute("INSERT INTO seen_geonames(urlname, geoname) VALUES (%s, %s)", (c_urlname, geoname))
                         conn.commit()
                 loc_dict['geoname_id'] = int(geoname)
-                counter += 1
-                yield loc_dict, tagcat_dictionary 
-            except:
-                print 'Failed on {}'.format(row)
-                raise
+                return loc_dict, tagcat_dictionary 
+
 
 
 
