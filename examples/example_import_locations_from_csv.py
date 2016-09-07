@@ -45,15 +45,11 @@ def main():
         table = cur.fetchone()[0]
         if not table:
             cur.execute("CREATE TABLE seen_coords (id serial PRIMARY KEY, urlname varchar, coords varchar);")
-        else:
-            print "coords table already there"
         #
         gtable = cur.execute("select exists(select relname from pg_class where relname='seen_geonames')")
         gtable = cur.fetchone()[0]
         if not gtable:
             cur.execute("CREATE TABLE seen_geonames (id serial PRIMARY KEY, urlname varchar, geoname int);")
-        else:
-            print "geonames table already there"
         #
         for loc_dict, tagcat_dictionary in read_locations(csv_file, conn, file_cfg):
             count += 1
@@ -103,7 +99,7 @@ CSVFILES = [
             GEONAME_USER = 'kiarasky2015',  
             aux_database = 'aux_location_db',
             external_unique_id = 'uuid' 			# they give us an unique uuid
-            namedtuple = ('MP-template',['uuid','id', 'urlname', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url','region', 'country','creation_date','image','thumbnail','video','facebook','twitter','tag1:category1|tag2:category1,category2|tag3:None'])
+            namedtuple = ('MP-template',['uuid','id', 'urlname', 'published', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url','region', 'country','creation_date','image','thumbnail','video','facebook','twitter','tag1:category1|tag2:category1,category2|tag3:None'])
             ),
         dict(
             client='VALiving',
@@ -139,7 +135,7 @@ def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the conf
             try:
                 row = decode_row(row, file_cfg['decode'])
                 if file_cfg['Namedtuple']:	  		
-                    row = file_cfg['Namedtuple']._make(encode_utf(row)) 		# TODO use namedtuple??? no, there are mandatory fields, use those to generalize!
+                    row = file_cfg['Namedtuple']._make(encode_utf(row)) 		# TODO use namedtuple??? load each csv table on the correct namedtuple
                 else:
                     print "check conf file"
                     return None
@@ -149,7 +145,7 @@ def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the conf
                 if file_cfg['urlname']:											# TODO generalize with unique_id_key or use uuid?
                     urlname = row.urlname
                 else:
-                    urlname = suggest_urlname(row.title).lower()				# we create the urlname, TODO make sure it's uniq
+                    urlname = suggest_urlname(row.title).lower()				# we create the urlname, TODO make sure it's uniq? 
                     urlname_count = 0
                     while urlname in LOCS:
                         urlname_count += 1
@@ -169,8 +165,17 @@ def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the conf
                     else:
                         web = row.web
                     loc_dict['website'] = web	
-                loc_dict['created'] = loc_dict['modified'] = str(datetime.datetime.now() - timedelta(days=2))	# yesterday's date
-                loc_dict['state'] = row.status or 'draft' # TODO general, get status from csv												
+                if row.creation_date:
+                    loc_dict['created'] = loc_dict['modified'] = row.creation_date
+                else:
+                    loc_dict['created'] = loc_dict['modified'] = str(datetime.datetime.now() - timedelta(days=2))	# yesterday's date
+                if row.published: 
+                    if row.published == 1:
+                        loc_dict['state'] = 'published'
+                    else:
+                        loc_dict['state'] = 'draft'
+                else:
+                    loc_dict['state'] = 'published' # TODO general, get status from csv												
                 address_key = ''
                 gcity = row.city
                 if row.street:
@@ -202,7 +207,7 @@ def read_locations(csv_file, conn, file_cfg): # TODO Modify this to use the conf
                     cur.execute("INSERT INTO seen_coords(urlname, coords) VALUES (%s, %s)", (c_urlname, coords))
                     conn.commit()
                 #
-                # geonames - TODO for Api add a warning for invalid geonames so the user knows? or set default to None?
+                # geonames - TODO for API add a warning for invalid geonames? Or set default to None?
                 cur.execute("SELECT * FROM seen_geonames where urlname = (%s)", (c_urlname,))
                 gresult = cur.fetchone()
                 if gresult:
