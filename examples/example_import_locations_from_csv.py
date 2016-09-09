@@ -61,7 +61,7 @@ def main():
             locupdater = LocationUpdater(api, file_cfg['INSTANCE_ID'])	
             l_status = locupdater.upsert_location(loc_dict, loc_uuid)  
             # tags
-            if file_cfg['has_tags'] = True:
+            if file_cfg['has_tags'] == True:
                 tagupdater = TagUpdater(api, file_cfg['INSTANCE_ID'])	
                 t_status = tagupdater.upsert_tags(tagcat_dictionary, loc_uuid)  
                 if t_status == 1:
@@ -86,20 +86,20 @@ If the client data are lacking it, we: 1) import locations and assign one extern
 """
 
 
+
 CSVFILES = [
-        # 0 is demo instance
-        # add error message if required fields missing!
         dict(
-            client='MP-template',			# we propose a csv template for which the script is ready-to-use
+            client='MP-template',			# we propose a csv template for which the script is ready-to-use, 'csv_template', in the examples folder
             uuid_import_id = 'http://client.com/import/0/',
-            INSTANCE_ID = 0, 
+            INSTANCE_ID = 0, # demo instance
             API_KEY = 'mxvsm129bm7RgcGRYedzLersZXGQSwQjMiyilovZL7A',
             API_SECRET = 'hSBADtfwcEnxeatj',
             GOOGLE_API_KEY = 'AIzaSyDrFNq9li1esIyHypfNh1IZ0w4FcPDeOVs',
             GEONAME_USER = 'kiarasky2015',  
             aux_database = 'aux_location_db',
-            external_unique_id = 'uuid' 			# they give us an unique uuid
-            namedtuple = ('MP-template',['uuid','id', 'urlname', 'published', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url','region', 'country','creation_date','image','thumbnail','video','facebook','twitter','tag1:category1|tag2:category1,category2|tag3:None'])
+            csvfile = 'csv_template'
+            namedtuple = ('MP-template',['uuid','id', 'urlname', 'published', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url','region', 'country','creation_date','image','thumbnail','video','facebook','twitter','tag1:category1|tag2:category1,category2|tag3:None']),
+            external_unique_id = 'uuid' 			# they give us an unique uuid, this column says which one to use - if None, create it on-the-fly and re-export
             ),
         dict(
             client='VALiving',
@@ -110,19 +110,21 @@ CSVFILES = [
             GOOGLE_API_KEY = 'AIzaSyDrFNq9li1esIyHypfNh1IZ0w4FcPDeOVs',
             GEONAME_USER = 'kiarasky2015',
             aux_database = 'aux_location_db',  
-            has_tags = True
-            namedtuple = ('VAlocation', ['cat_region', 'cat_category', 'title', 'street', 'city', 'postalcode', 'phone', 'web'])
+            has_tags = True,
+            csvfile = 'their_file_name'
+            namedtuple = ('VAlocation', ['cat_region', 'cat_category', 'title', 'street', 'city', 'postalcode', 'phone', 'web']),
             ),
            ]
 
 
-CsvFile = namedtuple('client','uuid_import_id','INSTANCE_ID','API_KEY','API_SECRET','GOOGLE_API_KEY','GEONAME_USER','aux_database','decode, has_tags, namedtuple')
-_default = CsvFile('required','required','required','required','required','required','required', 'required', 'UTF-8', False, None)
+CsvFile = namedtuple('client','uuid_import_id','INSTANCE_ID','API_KEY','API_SECRET','GOOGLE_API_KEY','GEONAME_USER','aux_database','decode, has_tags, csvfile, namedtuple, external_unique_id')
+_default = CsvFile('required','required','required','required','required','required','required', 'required', 'UTF-8', False, 'required', None, None)
 CSVFILES = [_default._replace(**t) for t in CSVFILES]
+# TODO add error message if required fields missing!
 
 
 
-def read_locations_new(csv_file, conn, file_cfg): # TODO Modify this to use the config
+def read_locations_new(csv_file, conn, file_cfg): 
     """This function reads the csv, and based on the configuration creates and yelds location dictionaries for the API
     """
     counter = 0
