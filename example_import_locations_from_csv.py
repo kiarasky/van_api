@@ -17,8 +17,8 @@ import van_api
 
 sys.path.append('/home/kiarasky/GIT/mp.importer/')
 from mp.importer.csv import LocationUpdater, TagUpdater
-from mp.importer.csv import get_coords, get_geoname
-from mp.importer.urlname import suggest as suggest_urlname
+from mp.importer.csv import get_coords, get_geoname, decode_row, encode_utf
+#from mp.importer.urlname import suggest as suggest_urlname # gives error icu.InvalidArgsError: (<class 'icu.Transliterator'>, 'createInstance', ('Any-Latin; Latin ASCII',))
 
 COORDS_CACHE = {}	  
 GEONAMES_CACHE = {}					
@@ -28,17 +28,19 @@ GEONAMES_CACHE = {}
 def main():
     logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(message)s')
     for file_cfg in CSVFILES: #  for each file type - no, this should be an argument
-        credentials = van_api.ClientCredentialsGrant(file_cfg['API_KEY'], file_cfg['API_SECRET'])
+        credentials = van_api.ClientCredentialsGrant(file_cfg.API_KEY, file_cfg.API_SECRET)
         api = van_api.API('api.metropublisher.com', credentials)
         fields = ['url', 'location_types']
-        start_url = '/{}/locations?fields={}&rpp=100'.format(file_cfg['INSTANCE_ID'], '-'.join(fields))
-        csv_file = file_cfg['basepath'] + file_cfg['csvfile']			 
+        start_url = '/{}/locations?fields={}&rpp=100'.format(file_cfg.INSTANCE_ID, '-'.join(fields))
+        csv_file = file_cfg.basepath + file_cfg.csvfile		
         count = ok = skip = tags = 0 
         try:
-            conn = psycopg2.connect("dbname='aux_location_db' host='/var/run/postgresql'") 			# TODO pass these also from the conf file? or use and delete always the same aux table?
+            conn = psycopg2.connect("dbname='aux_location_db' user='kiara' host='localhost' password='kiara'") 			
+            # TODO 1) create db if not there, 2) pass conn data from conf 3) can we store this elsewhere?
             conn.autocommit = True	
         except:
             print ("I am unable to connect to the database")
+            break 																					# give error message
         cur = conn.cursor()
         table = cur.execute("select exists(select relname from pg_class where relname='seen_coords')")
         table = cur.fetchone()[0]
@@ -51,17 +53,18 @@ def main():
             cur.execute("CREATE TABLE seen_geonames (id serial PRIMARY KEY, urlname varchar, geoname int);")
         #
         for loc_dict, tagcat_dictionary in read_locations(csv_file, conn, file_cfg):
+            print ("READING LOCATION", loc_dict)
             count += 1
             url = 'http://api.metropublisher.com/' + loc_dict['urlname']				 
             namespace = uuid.NAMESPACE_URL
             url = url.encode('utf-8')
-            new_url = '%s/%s/%s' % (file_cfg['API_KEY'], str(file_cfg['INSTANCE_ID']), url) 
+            new_url = '%s/%s/%s' % (file_cfg.API_KEY, str(file_cfg.INSTANCE_ID), url) 
             loc_uuid = uuid.uuid3(namespace, new_url)		# use also API_KEY and INSTANCE_ID - repeatable uuids x idempotent api 
-            locupdater = LocationUpdater(api, file_cfg['INSTANCE_ID'])	
+            locupdater = LocationUpdater(api, file_cfg.INSTANCE_ID)	
             l_status = locupdater.upsert_location(loc_dict, loc_uuid)  
             # tags
-            if file_cfg['has_tags'] == True:
-                tagupdater = TagUpdater(api, file_cfg['INSTANCE_ID'])	
+            if file_cfg.has_tags == True:
+                tagupdater = TagUpdater(api, file_cfg.INSTANCE_ID)	
                 t_status = tagupdater.upsert_tags(tagcat_dictionary, loc_uuid)  
                 if t_status == 1:
                     tags += 1
@@ -101,7 +104,7 @@ CSVFILES = [
             aux_database = 'aux_location_db',
             basepath = '/home/kiarasky/GIT/van_api/',
             csvfile = 'csv_template',
-            csvfields = namedtuple('MP-template',['uuid','id', 'urlname', 'published', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url', 'region', 'country','creation_date', 'image','thumbnail', 'video', 'facebook', 'twitter', 'tags_categories']), 
+            csvfields = namedtuple( 'MPlocation' ,['uuid','id', 'urlname', 'published', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url', 'region', 'country','creation_date', 'image','thumbnail', 'video', 'facebook', 'twitter', 'tags_categories']), 
             external_unique_id = 'uuid' 			# they give us an unique uuid, this column says which one to use - if None, create it on-the-fly and re-export
             ),
         dict(
@@ -116,12 +119,12 @@ CSVFILES = [
             has_tags = True,
             basepath = '/',
             csvfile = 'their_file_name',
-            csvfields = namedtuple('VAlocation', ['cat_region', 'cat_category', 'title', 'street', 'city', 'postalcode', 'phone', 'web']),
+            csvfields = namedtuple( 'VAlocation' , ['cat_region', 'cat_category', 'title', 'street', 'city', 'postalcode', 'phone', 'web']),
             ),
            ]
 
 
-CsvFile = namedtuple('client','uuid_import_id','INSTANCE_ID','API_KEY','API_SECRET','GOOGLE_API_KEY','GEONAME_USER','aux_database','decode, has_tags, basepath, csvfile, csvfields, external_unique_id')
+CsvFile = namedtuple('CsvFile', ['client','uuid_import_id','INSTANCE_ID', 'API_KEY', 'API_SECRET', 'GOOGLE_API_KEY', 'GEONAME_USER', 'aux_database','decode','has_tags', 'basepath', 'csvfile', 'csvfields', 'external_unique_id'])
 _default = CsvFile('required','required','required','required','required','required','required', 'required', 'UTF-8', False, 'required', 'required', None, None)
 CSVFILES = [_default._replace(**t) for t in CSVFILES]
 # TODO add error message if required fields missing!
@@ -133,16 +136,18 @@ def read_locations(csv_file, conn, file_cfg):
     """
     counter = 0
     tagcat_dictionary = {}
-    with open(csv_file, 'rb') as csvfile:
-        next(csvfile)							
+    with open(csv_file, 'r') as csvfile:
+        next(csvfile) # skip header - add in cfg Has_header = True/False					
         reader = csv.reader(csvfile, delimiter=',')			
         LOCS = []
         for row in reader:
+            print ("row", row)
             loc_dict = tagcat_dictionary = {} 					
             try:
-                row = decode_row(row, file_cfg['decode']) # if it can decode, passes to the create_loc_dict function
+                #row = decode_row(row, file_cfg.decode) # No need to decode anymore
                 loc_dict, tagcat_dictionary = prepare_location_data(row, conn, file_cfg)
                 counter += 1
+                print ("yelding loc", loc_dict)
                 yield loc_dict, tagcat_dictionary 
             except:
                 print ('Failed on {}'.format(row))
@@ -155,17 +160,21 @@ def prepare_location_data(row, conn, file_cfg):
     # decide how to load the data, if use Namedtuple or if putting the columns somehow in the config
     # if fails, return None
     # TODO implement uuid option 
-    loc_dict = tagcat_dict = None      
-    if file_cfg['Namedtuple']:	  		
-        row = file_cfg['Namedtuple']._make(encode_utf(row)) 		# TODO use namedtuple??? load each csv table on the correct namedtuple
+    loc_dict = tagcat_dict = namedtuple_row = None      
+    if file_cfg.csvfields:	  		
+        namedtuple_row = file_cfg.csvfields._make(row) 		# TODO use namedtuple? load each csv table on the correct namedtuple + removed encode_utf(row)
     else:
         print ("check conf file")
-    if file_cfg['MP-template']:
-        loc_dict, tagcat_dict = get_template_location(row, file_cfg)
-    elif file_cfg['VAliving']:
-        loc_dict, tagcat_dict = get_VAliving_location(row, file_cfg)
+    if namedtuple_row:
+        if file_cfg.client == "MP-template":
+            print ("processing template data")
+            loc_dict, tagcat_dict = get_template_location(namedtuple_row, conn, file_cfg)
+        elif file_cfg.client == "VAliving":
+            loc_dict, tagcat_dict = get_VAliving_location(namedtuple_row, conn, file_cfg)
+        else:
+            print ("implement specific function for client")
     else:
-        print ("implement specific function for client")
+        print ("cound not create namedtuple")
     if loc_dict is not None and tagcat_dict is not None:
         return loc_dict, tagcat_dict         
     else:
@@ -174,13 +183,14 @@ def prepare_location_data(row, conn, file_cfg):
 
 
 def get_template_location(row, conn, file_cfg):
+    loc_dict = tagcat_dictionary = {}
     loc_dict['title'] = row.title or None 
     if loc_dict['title'] is None: 
         raise NotImplementedError # skip
-    if file_cfg['urlname']:											# TODO generalize with unique_id_key or use uuid?
+    if row.urlname:											# TODO generalize with unique_id_key or use uuid?
         urlname = row.urlname
     else:
-        urlname = suggest_urlname(row.title).lower()				# we create the urlname, TODO make sure it's uniq? 
+        urlname = row.title.replace(' ','-').lower()				# we create the urlname, TODO use suggest_urlname, make sure it's uniq in the destination db 
         urlname_count = 0
         while urlname in LOCS:
             urlname_count += 1
@@ -233,7 +243,7 @@ def get_template_location(row, conn, file_cfg):
     else:
         coords = COORDS_CACHE.get(urlname)		
     if coords is None:	
-        coords = get_coords(address_key, loc_dict['urlname'])	
+        coords = get_coords(address_key, file_cfg.GOOGLE_API_KEY, loc_dict['urlname'])	
         loc_dict['coords'] = coords 	
         COORDS_CACHE[urlname] = coords
         cur.execute("INSERT INTO seen_coords(urlname, coords) VALUES (%s, %s)", (c_urlname, coords))
@@ -263,7 +273,7 @@ def get_template_location(row, conn, file_cfg):
 
 
 
-def get_VAliving_location(row, file_cfg):
+def get_VAliving_location(row, conn, file_cfg):
     print ("to be implemented")
     return None, None
 
