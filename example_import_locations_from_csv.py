@@ -261,14 +261,17 @@ def get_template_location(row, conn, file_cfg):
         geoname = GEONAMES_CACHE.get(urlname)				
         if geoname is None:
             gcity = row.city.replace(' ', '+')
-            geoname = get_geoname(search_title,loc_dict['pcode'], loc_dict['urlname'], gcity)
+            geoname = get_geoname(file_cfg.GEONAME_USER, loc_dict['pcode'], gcity)
         if geoname is None:
             print ("geoname from API is None")
         else:		 
             GEONAMES_CACHE[urlname] = geoname	  
             cur.execute("INSERT INTO seen_geonames(urlname, geoname) VALUES (%s, %s)", (c_urlname, geoname))
             conn.commit()
-    loc_dict['geoname_id'] = int(geoname)
+    if geoname:
+        loc_dict['geoname_id'] = int(str(geoname))
+    else:
+        loc_dict['geoname_id'] = None
     return loc_dict, tagcat_dictionary 
 
 
