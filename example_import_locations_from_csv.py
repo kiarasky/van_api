@@ -58,8 +58,12 @@ def main():
             url = 'http://api.metropublisher.com/' + loc_dict['urlname']				 
             namespace = uuid.NAMESPACE_URL
             url = url.encode('utf-8')
-            new_url = '%s/%s/%s' % (file_cfg.API_KEY, str(file_cfg.INSTANCE_ID), url) 
-            loc_uuid = uuid.uuid3(namespace, new_url)		# use also API_KEY and INSTANCE_ID - repeatable uuids x idempotent api 
+            new_url = '%s/%s/%s' % (file_cfg.API_KEY, str(file_cfg.INSTANCE_ID), url)
+            if loc_dict['uuid']:
+                loc_uuid = loc_dict['uuid']
+                loc_dict.remove('uuid') # remove it from the dictionary
+            else:
+                loc_uuid = uuid.uuid3(namespace, new_url)		# use also API_KEY and INSTANCE_ID - repeatable uuids x idempotent api - create unique uuid
             locupdater = LocationUpdater(api, file_cfg.INSTANCE_ID)	
             l_status = locupdater.upsert_location(loc_dict, loc_uuid)  
             # tags
@@ -136,16 +140,16 @@ def read_locations(csv_file, conn, file_cfg):
     """
     counter = 0
     tagcat_dictionary = {}
+    LOCS = [] # TODO add it to context
     with open(csv_file, 'r') as csvfile:
         next(csvfile) # skip header - add in cfg Has_header = True/False					
         reader = csv.reader(csvfile, delimiter=',')			
-        LOCS = []
         for row in reader:
             print ("row", row)
             loc_dict = tagcat_dictionary = {} 					
             try:
                 #row = decode_row(row, file_cfg.decode) # No need to decode anymore
-                loc_dict, tagcat_dictionary = prepare_location_data(row, conn, file_cfg)
+                loc_dict, tagcat_dictionary = prepare_location_data(row, conn, file_cfg, LOCS)
                 counter += 1
                 print ("yelding loc", loc_dict)
                 yield loc_dict, tagcat_dictionary 
@@ -154,15 +158,13 @@ def read_locations(csv_file, conn, file_cfg):
                 raise
 
 
-def prepare_location_data(row, conn, file_cfg): 
+def prepare_location_data(row, conn, file_cfg, LOCS): 
     """This function gets a row and, based on the configuration, creates location dictionary for the API and tagcategory dictionary
     """
-    # decide how to load the data, if use Namedtuple or if putting the columns somehow in the config
-    # if fails, return None
-    # TODO implement uuid option 
+    # TODO decide how to load the data, if use Namedtuple or if putting the columns somehow in the config
     loc_dict = tagcat_dict = namedtuple_row = None      
     if file_cfg.csvfields:	  		
-        namedtuple_row = file_cfg.csvfields._make(row) 		# TODO use namedtuple? load each csv table on the correct namedtuple + removed encode_utf(row)
+        namedtuple_row = file_cfg.csvfields._make(row) 		
     else:
         print ("check conf file")
     if namedtuple_row:
@@ -182,21 +184,33 @@ def prepare_location_data(row, conn, file_cfg):
 
 
 
-def get_template_location(row, conn, file_cfg):
+def get_template_location(row, conn, file_cfg, LOCS):
     loc_dict = tagcat_dictionary = {}
+    if file_cfg.external_unique_id:
+        if file_cfg.external_unique_id = 'uuid':
+            loc_dict['uuid'] = row.uuid
+        elif file_cfg.external_unique_id = 'urlname':
+            loc_dict['urlname'] = row.urlname
+        else:
+           raise NotImplementedError	# only 2 options for now
+    else:
+        # do not add uuid, create urlname
+        if row.urlname:											
+            urlname = row.urlname
+        else:
+            urlname = row.title.replace(' ','-').lower()				# TODO use suggest_urlname, query with API to make sure it's uniq in the destination db 
+            # check if it's in the db
+            urlname_count = 0
+            while urlname in LOCS:
+                urlname_count += 1
+                urlname = urlname + '-%s' % urlname_count
+                # check if it's in the db
+                print ('DUPLICATE URLNAME, TRYING', urlname)
+            LOCS.append(urlname)
+        loc_dict['urlname'] = row.urlname  
     loc_dict['title'] = row.title or None 
     if loc_dict['title'] is None: 
         raise NotImplementedError # skip
-    if row.urlname:											# TODO generalize with unique_id_key or use uuid?
-        urlname = row.urlname
-    else:
-        urlname = row.title.replace(' ','-').lower()				# we create the urlname, TODO use suggest_urlname, make sure it's uniq in the destination db 
-        urlname_count = 0
-        while urlname in LOCS:
-            urlname_count += 1
-            urlname = urlname + '-%s' % urlname_count
-            print ('DUPLICATE URLNAME, TRYING', urlname)	
-            LOCS.append(urlname)
     loc_dict['urlname'] = urlname
     loc_dict['street'] = row.street or None
     loc_dict['pcode'] = row.postalcode or None
