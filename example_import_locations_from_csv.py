@@ -9,6 +9,7 @@ import cgi
 import uuid
 import logging
 import datetime
+import ast
 import psycopg2
 from datetime import timedelta
 from collections import namedtuple
@@ -67,7 +68,7 @@ def main():
             locupdater = LocationUpdater(api, file_cfg.INSTANCE_ID)	
             l_status = locupdater.upsert_location(loc_dict, loc_uuid)  
             # tags
-            if file_cfg.has_tags == True:
+            if file_cfg.has_tags == True and tagcat_dictionary is not None and not tagcat_dictionary == {}:
                 tagupdater = TagUpdater(api, file_cfg.INSTANCE_ID)	
                 t_status = tagupdater.upsert_tags(tagcat_dictionary, loc_uuid)  
                 if t_status == 1:
@@ -109,6 +110,7 @@ CSVFILES = [
             basepath = '/home/kiarasky/GIT/van_api/',
             csvfile = 'csv_template',
             csvfields = namedtuple( 'MPlocation' ,['uuid','id', 'urlname', 'published', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url', 'region', 'country','creation_date', 'image','thumbnail', 'video', 'facebook', 'twitter', 'tags_categories']), 
+            # tags_categories of type: '{"tag1":"cat1","tag2":None,"tag3":"cat1,cat2"}'
             external_unique_id = 'uuid' 			# they give us an unique uuid, this column says which one to use - if None, create it on-the-fly and re-export
             ),
         dict(
@@ -192,7 +194,7 @@ def get_template_location(row, conn, file_cfg, LOCS):
         elif file_cfg.external_unique_id = 'urlname':
             loc_dict['urlname'] = row.urlname
         else:
-           raise NotImplementedError	# only 2 options for now
+           raise NotImplementedError	# only 2 options for now?
     else:
         # do not add uuid, create urlname
         if row.urlname:											
@@ -216,7 +218,9 @@ def get_template_location(row, conn, file_cfg, LOCS):
     loc_dict['pcode'] = row.postalcode or None
     loc_dict['phone'] = row.phone or None
     #
-    # TODO create tagcat_dictionary {tag1:cat1,tag2:None,tag3:cat1,cat2} - depending on the config file
+    # TODO create tagcat_dictionary {"tag1":"cat1","tag2":None,"tag3":"cat1,cat2"} - depending on the config file
+    if row.tags_categories and row.tags_categories.strip():
+        tagcat_dictionary = dict(ast.literal_eval(row.tags_categories))    # load to dictionary directly
     #
     if row.web:
         if not (row.web.startswith('http://') or row.web.startswith('https://')):
