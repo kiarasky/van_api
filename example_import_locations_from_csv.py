@@ -35,8 +35,8 @@ def main():
         logfilewriter = csv.writer(logfile) 
         context = Context ( 	
                        problem_csv = logfilewriter, 
-                       COORDS_CACHE = [],
-                       GEONAMES_CACHE = [],
+                       COORDS_CACHE = {},
+                       GEONAMES_CACHE = {},
                        LOCS = [],
                        api = api,
                        problem_summary = {}
@@ -191,6 +191,7 @@ def prepare_location_data(context, row, conn, file_cfg):
     # TODO decide how to load the data, if use Namedtuple or if putting the columns somehow in the config
     loc_dict = tagcat_dict = namedtuple_row = None      
     if file_cfg.csvfields:	  		
+        print ("len row", len(row))
         namedtuple_row = file_cfg.csvfields._make(row) 		
     else:
         print ("check conf file")
@@ -214,31 +215,40 @@ def create_uuid(row, file_cfg, attribute):
     external_id_value = getattr(row,attribute)
     assert external_id_value is not None
     ns = '%s/%s/%s' % (file_cfg.client, file_cfg.API_KEY, external_id_value)
-    uuid = uuid5(NAMESPACE_URL, ns)  
+    uuid = str(uuid5(NAMESPACE_URL, ns))  
     return uuid
+
+
+def create_unique_urlname(context, row):
+    urlname_count = 0
+    found = True # we know that this urlname is there
+    while Found == True:
+        while urlname in context.LOCS:
+            urlname_count += 1
+            urlname = urlname + '-%s' % urlname_count
+        # get the first available urlname with the count and see if it's in the db
+        locupdater = LocationUpdater(context.api, file_cfg.INSTANCE_ID)	
+        found = locupdater.check_existing_location(urlname) 
+        # exits when found is False   
+    context.LOCS.append(urlname)
+    return urlname
 
 
 def get_template_location(context, row, conn, file_cfg):
     loc_dict = tagcat_dictionary = {}
-    # urlname 
+    # urlname  - make sure it's uniq in the db - TODO we can test this!
     if row.urlname:											
         urlname = row.urlname
     else:
         urlname = row.title.replace(' ','-').lower()		# use suggest.urlname
     locupdater = LocationUpdater(context.api, file_cfg.INSTANCE_ID)	
     found = locupdater.check_existing_location(urlname) 
-    # *********************************************************** TODO while and create an unique urlname
     if found:
-        urlname_count = 0
-        while urlname in context.LOCS:
-            urlname_count += 1
-            urlname = urlname + '-%s' % urlname_count
-            print ('DUPLICATE URLNAME, TRYING', urlname)
-        context.LOCS.append(urlname)
-        loc_dict['urlname'] = urlname
-    else:
-        loc_dict['urlname'] = urlname    
-    assert 'urlname' in loc_dict  
+        context.prob('info','found duplicate, create urlname', urlname, None)
+        urlname = create_unique_urlname(context, urlname)
+    loc_dict['urlname'] = urlname
+    assert urlname is not None 
+    assert 'urlname' in loc_dict 
     #
     # uuid
     if file_cfg.external_id:
@@ -285,11 +295,11 @@ def get_template_location(context, row, conn, file_cfg):
     if row.city:
         address_key = address_key + row.city.replace(' ','+') + ','
     address_key = address_key.replace(' ', '+') 	
-    coords = get_location_coordinates(context, address_key, conn, file_cfg, loc_dict['urlname'])
+    coords = get_location_coordinates(context, address_key, conn, file_cfg, loc_dict['urlname'],loc_dict)
     if coords:
         loc_dict['coords'] = coords
     # geonames
-    geoname = get_location_geoname(context, row, conn, file_cfg, loc_dict['urlname'])
+    geoname = get_location_geoname(context, row, conn, file_cfg, loc_dict['urlname'],loc_dict)
     if geoname: # can also be None
         loc_dict['geoname_id'] = int(str(geoname)) 
     return loc_dict, tagcat_dictionary 
@@ -299,7 +309,7 @@ def get_template_location(context, row, conn, file_cfg):
 
 ### these two can be used for all csvfiles - could be added to csv.py but maybe better keep these here (so csv.py does not rely on sqlite)
 
-def get_location_coordinates(context, address_key, conn, file_cfg, urlname):
+def get_location_coordinates(context, address_key, conn, file_cfg, urlname,loc_dict):
     cur = conn.cursor()
     cur.execute("SELECT * FROM seen_coords where urlname = (?)", (urlname,))  # sqlite uses ? as placeholder
     result = cur.fetchone()
@@ -311,34 +321,35 @@ def get_location_coordinates(context, address_key, conn, file_cfg, urlname):
             i = i.replace('}','')
             coords.append(float(i))
     else:
-        coords = COORDS_CACHE.get(urlname)		
+        coords = context.COORDS_CACHE.get(urlname)
     if coords is None:	
         coords = get_coords(address_key, file_cfg.GOOGLE_API_KEY, urlname)	
         if coords is None:
             context.prob('error','No coords for this location',None,loc_dict['uuid'])
         loc_dict['coords'] = coords 	
-        COORDS_CACHE[urlname] = coords
-        cur.execute("INSERT INTO seen_coords(urlname, coords) VALUES (?,?)", (urlname, coords))
+        context.COORDS_CACHE[urlname] = coords
+        cur.execute("INSERT INTO seen_coords(urlname, coords) VALUES (?,?)", (urlname, coords))				# TODO cannot insert tuples
         conn.commit()
     return coords
 
 
-def get_location_geoname(context, row, conn, file_cfg, urlname):
+def get_location_geoname(context, row, conn, file_cfg, urlname,loc_dict):
+    cur = conn.cursor()
     cur.execute("SELECT * FROM seen_geonames where urlname = (?)", (urlname,))
     gresult = cur.fetchone()
     if gresult:
         geoname = gresult[2]
     else:
         search_title = loc_dict['title'].replace(' ', '+')
-        geoname = GEONAMES_CACHE.get(urlname)				
+        geoname = context.GEONAMES_CACHE.get(urlname)				
         if geoname is None:
             gcity = row.city.replace(' ', '+')
             geoname = get_geoname(file_cfg.GEONAME_USER, loc_dict['pcode'], gcity)
         if geoname is None:
             context.prob('error','No geoname for this location',None,loc_dict['uuid'])
         else:		 
-            GEONAMES_CACHE[urlname] = geoname	  
-            cur.execute("INSERT INTO seen_geonames(urlname, geoname) VALUES (?,?)", (curlname, geoname))
+            context.GEONAMES_CACHE[urlname] = geoname	  
+            cur.execute("INSERT INTO seen_geonames(urlname, geoname) VALUES (?,?)", (urlname, geoname))
             conn.commit()
     return geoname
 
