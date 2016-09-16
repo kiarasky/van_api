@@ -54,21 +54,20 @@ def main():
         cur.execute("create table if not exists seen_geonames (id serial PRIMARY KEY, urlname varchar, geoname int)")
         #
         for loc_dict, tagcat_dictionary in read_locations(context, csv_file, conn, file_cfg):
-            print ("READING LOCATION", loc_dict)
             count += 1
             locupdater = LocationUpdater(api, file_cfg.INSTANCE_ID)	
             l_status = locupdater.upsert_location(loc_dict, loc_dict['uuid'])
-            print ("l_status", l_status)
             if l_status == 1:
                 ok += 1
             else:
                 skip += 1  
             # tags
             if file_cfg.has_tags == True and tagcat_dictionary is not None and not tagcat_dictionary == {}:
-                tagupdater = TagUpdater(api, file_cfg.INSTANCE_ID)	
-                t_status = tagupdater.upsert_tags(tagcat_dictionary, loc_uuid)  
-                if t_status == 1:
-                    tags += 1    
+                for tag in tagcat_dictionary:
+                    tagupdater = TagUpdater(api, file_cfg.INSTANCE_ID)	
+                    t_status = tagupdater.upsert_tag(tag, tagcat_dictionary, loc_dict['uuid'])  
+                    if t_status == 1:
+                        tags += 1    
         # commit
         conn.commit()
         # close db connection
@@ -130,6 +129,7 @@ CSVFILES = [
             GOOGLE_API_KEY = 'AIzaSyDrFNq9li1esIyHypfNh1IZ0w4FcPDeOVs',
             GEONAME_USER = 'kiarasky2015',  
             aux_database = 'aux_location_db',
+            has_tags = True,
             basepath = '/home/kiarasky/GIT/van_api/',
             csvfile = 'csv_template',
             csvfields = namedtuple( 'MPlocation' ,['uuid','id', 'urlname', 'published', 'title', 'phone', 'email', 'web','number', 'street', 'postalcode','city', 'fax', 'description', 'print_description', 'content', 'price', 'reservation_url', 'region', 'country','creation_date', 'image','thumbnail', 'video', 'facebook', 'twitter', 'tags_categories']), 
@@ -174,10 +174,7 @@ def read_locations(context, csv_file, conn, file_cfg):
             loc_dict = tagcat_dictionary = {} 					
             try:
                 loc_dict, tagcat_dictionary = prepare_location_data(context, row, conn, file_cfg)
-                print ("loc_dict", loc_dict)
                 counter += 1
-                if counter >= 2:
-                    break
                 yield loc_dict, tagcat_dictionary 
             except:
                 print ('Failed on {}'.format(row))
@@ -196,7 +193,7 @@ def prepare_location_data(context, row, conn, file_cfg):
         print ("check conf file")
     if namedtuple_row:
         if file_cfg.client == "MP-template":
-            print ("processing template data")
+            print ("processing data for client using csv template")
             loc_dict, tagcat_dict = get_template_location(context, namedtuple_row, conn, file_cfg)
         elif file_cfg.client == "VAliving":
             loc_dict, tagcat_dict = get_VAliving_location(context, namedtuple_row, conn, file_cfg)
@@ -267,7 +264,7 @@ def get_template_location(context, row, conn, file_cfg):
     #
     # create tagcat_dictionary {"tag1":"cat1","tag2":None,"tag3":"cat1,cat2"}
     if row.tags_categories and row.tags_categories.strip():
-        tagcat_dictionary = dict(ast.literal_eval(row.tags_categories))    
+        tagcat_dictionary = dict(ast.literal_eval(row.tags_categories))  
     #
     if row.web:
         if not (row.web.startswith('http://') or row.web.startswith('https://')):
