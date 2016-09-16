@@ -119,12 +119,11 @@ If the client data are lacking it, we: 1) import locations and assign one extern
 CSVFILES = [
         dict(
             client='MP-template',			
-            uuid_import_id = 'http://client.com/import/0/',
-            INSTANCE_ID = 0, 
+            INSTANCE_ID = 1, 
             # user for bugfix (id=36),
             #API_KEY = 'sosdxwfKCAh0E_Tjt36pcsYooYZhXXzdI9YYqZ-k',
             #API_SECRET = 'kd_YEcqkmt75ST5IWIzX-Qhgy4ss0l7aj1KQVpS6',
-            # user for demo (id=0)
+            # user for demo (id=1)
             API_KEY = 'mxvsm129bm7RgcGRYedzLersZXGQSwQjMiyilovZL7A',
             API_SECRET = 'hSBADtfwcEnxeatj',
             GOOGLE_API_KEY = 'AIzaSyDrFNq9li1esIyHypfNh1IZ0w4FcPDeOVs',
@@ -140,7 +139,6 @@ CSVFILES = [
             ),
         dict(
             client='VALiving',
-            uuid_import_id = 'http://client.com/import/0/',
             INSTANCE_ID = 0,
             API_KEY = 'mxvsm129bm7RgcGRYedzLersZXGQSwQjMiyilovZL7A',
             API_SECRET = 'hSBADtfwcEnxeatj',
@@ -155,8 +153,8 @@ CSVFILES = [
            ]
 
 
-CsvFile = namedtuple('CsvFile', ['client','uuid_import_id','INSTANCE_ID', 'API_KEY', 'API_SECRET', 'GOOGLE_API_KEY', 'GEONAME_USER', 'aux_database','decode','has_tags', 'basepath', 'csvfile', 'csvfields', 'external_id', 'Hasheader', 'logfile'])
-_default = CsvFile('required','required','required','required','required','required','required', 'required', 'UTF-8', False, 'required', 'required', None, None, False, 'logfile.csv')
+CsvFile = namedtuple('CsvFile', ['client','INSTANCE_ID', 'API_KEY', 'API_SECRET', 'GOOGLE_API_KEY', 'GEONAME_USER', 'aux_database','decode','has_tags', 'basepath', 'csvfile', 'csvfields', 'external_id', 'Hasheader', 'logfile'])
+_default = CsvFile('required','required','required','required','required','required', 'required', 'UTF-8', False, 'required', 'required', None, None, False, 'logfile.csv')
 CSVFILES = [_default._replace(**t) for t in CSVFILES]
 # TODO add error message if required fields missing!
 
@@ -212,7 +210,7 @@ def prepare_location_data(context, row, conn, file_cfg):
         return None, None
 
 
-def create_uuid(row, attribute):   
+def create_uuid(row, file_cfg, attribute):   
     external_id_value = getattr(row,attribute)
     assert external_id_value is not None
     ns = '%s/%s/%s' % (file_cfg.client, file_cfg.API_KEY, external_id_value)
@@ -244,9 +242,9 @@ def get_template_location(context, row, conn, file_cfg):
     #
     # uuid
     if file_cfg.external_id:
-        loc_dict['uuid'] = create_uuid(row, file_cfg.external_id)
+        loc_dict['uuid'] = create_uuid(row, file_cfg, file_cfg.external_id)
     else: # use urlname recently created, unique
-        loc_dict['uuid'] = create_uuid(row, loc_dict['urlname'])
+        loc_dict['uuid'] = create_uuid(row, file_cfg, loc_dict['urlname'])
     assert loc_dict['uuid'] is not None
     #       
     loc_dict['title'] = row.title or None 
