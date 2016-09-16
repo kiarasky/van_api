@@ -57,23 +57,24 @@ def main():
             print ("READING LOCATION", loc_dict)
             count += 1
             locupdater = LocationUpdater(api, file_cfg.INSTANCE_ID)	
-            l_status = locupdater.upsert_location(loc_dict, loc_dict['uuid'])  
+            l_status = locupdater.upsert_location(loc_dict, loc_dict['uuid'])
+            print ("l_status", l_status)
+            if l_status == 1:
+                ok += 1
+            else:
+                skip += 1  
             # tags
             if file_cfg.has_tags == True and tagcat_dictionary is not None and not tagcat_dictionary == {}:
                 tagupdater = TagUpdater(api, file_cfg.INSTANCE_ID)	
                 t_status = tagupdater.upsert_tags(tagcat_dictionary, loc_uuid)  
                 if t_status == 1:
-                    tags += 1
-            if l_status == 1:
-                ok += 1
-            else:
-                skip += 1    
+                    tags += 1    
         # commit
         conn.commit()
         # close db connection
         cur.close()
         conn.close()
-        logging.info('Imported {} and removed {} out of {} locations'.format(ok, skip, count))
+        logging.info('Imported {} and not imported {} out of {} locations'.format(ok, skip, count))
         logging.info('Imported also {} tags'.format(tags))
         return 0					     
 
@@ -119,13 +120,13 @@ If the client data are lacking it, we: 1) import locations and assign one extern
 CSVFILES = [
         dict(
             client='MP-template',			
-            INSTANCE_ID = 1, 
+            INSTANCE_ID = 36, 
             # user for bugfix (id=36),
-            #API_KEY = 'sosdxwfKCAh0E_Tjt36pcsYooYZhXXzdI9YYqZ-k',
-            #API_SECRET = 'kd_YEcqkmt75ST5IWIzX-Qhgy4ss0l7aj1KQVpS6',
+            API_KEY = 'sosdxwfKCAh0E_Tjt36pcsYooYZhXXzdI9YYqZ-k',
+            API_SECRET = 'kd_YEcqkmt75ST5IWIzX-Qhgy4ss0l7aj1KQVpS6',
             # user for demo (id=1)
-            API_KEY = 'mxvsm129bm7RgcGRYedzLersZXGQSwQjMiyilovZL7A',
-            API_SECRET = 'hSBADtfwcEnxeatj',
+            #API_KEY = 'mxvsm129bm7RgcGRYedzLersZXGQSwQjMiyilovZL7A',
+            #API_SECRET = 'hSBADtfwcEnxeatj',
             GOOGLE_API_KEY = 'AIzaSyDrFNq9li1esIyHypfNh1IZ0w4FcPDeOVs',
             GEONAME_USER = 'kiarasky2015',  
             aux_database = 'aux_location_db',
@@ -170,12 +171,11 @@ def read_locations(context, csv_file, conn, file_cfg):
             next(csvfile) 					
         reader = csv.reader(csvfile, delimiter=',')			
         for row in reader:
-            print ("row", row)
             loc_dict = tagcat_dictionary = {} 					
             try:
                 loc_dict, tagcat_dictionary = prepare_location_data(context, row, conn, file_cfg)
+                print ("loc_dict", loc_dict)
                 counter += 1
-                print ("yelding loc", loc_dict)
                 if counter >= 2:
                     break
                 yield loc_dict, tagcat_dictionary 
@@ -191,7 +191,6 @@ def prepare_location_data(context, row, conn, file_cfg):
     # TODO decide how to load the data, if use Namedtuple or if putting the columns somehow in the config
     loc_dict = tagcat_dict = namedtuple_row = None      
     if file_cfg.csvfields:	  		
-        print ("len row", len(row))
         namedtuple_row = file_cfg.csvfields._make(row) 		
     else:
         print ("check conf file")
@@ -204,7 +203,7 @@ def prepare_location_data(context, row, conn, file_cfg):
         else:
             print ("implement specific function for client")
     else:
-        print ("cound not create namedtuple")
+        context.prob('error','could not create namedtuple',None,None)
     if loc_dict is not None and tagcat_dict is not None:
         return loc_dict, tagcat_dict         
     else:
@@ -268,7 +267,7 @@ def get_template_location(context, row, conn, file_cfg):
     #
     # create tagcat_dictionary {"tag1":"cat1","tag2":None,"tag3":"cat1,cat2"}
     if row.tags_categories and row.tags_categories.strip():
-        tagcat_dictionary = dict(ast.literal_eval(row.tags_categories))   
+        tagcat_dictionary = dict(ast.literal_eval(row.tags_categories))    
     #
     if row.web:
         if not (row.web.startswith('http://') or row.web.startswith('https://')):
@@ -317,8 +316,8 @@ def get_location_coordinates(context, address_key, conn, file_cfg, urlname,loc_d
         coords = []
         for i in result[2].split(','):
             i = i.replace('"','')
-            i = i.replace('{','')
-            i = i.replace('}','')
+            i = i.replace('[','')
+            i = i.replace(']','')           
             coords.append(float(i))
     else:
         coords = context.COORDS_CACHE.get(urlname)
@@ -328,7 +327,7 @@ def get_location_coordinates(context, address_key, conn, file_cfg, urlname,loc_d
             context.prob('error','No coords for this location',None,loc_dict['uuid'])
         loc_dict['coords'] = coords 	
         context.COORDS_CACHE[urlname] = coords
-        cur.execute("INSERT INTO seen_coords(urlname, coords) VALUES (?,?)", (urlname, coords))				# TODO cannot insert tuples
+        cur.execute("INSERT INTO seen_coords(urlname, coords) VALUES (?,?)", (urlname, repr(coords)))				# cannot insert tuples, serialize
         conn.commit()
     return coords
 
