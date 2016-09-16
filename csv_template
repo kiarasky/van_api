@@ -1,2 +1,2 @@
 uuid,id,urlname,published,title,phone,email,web,number,street,postalcode,city,fax,description,print_description,content,price,reservation_url,region,country,creation_date,image,thumbnail,video,facebook,twitter,tags_categories
-c90d3262-7c0d-11e6-a7cc-28d24497905e,1,reilly-theater-swine-palace,1,Reilly Theatre,,,,,Tower Dr.,70803,Baton Rouge,description,,,content,,,,US,,,,,,,
+c90d3262-7c0d-11e6-a7cc-28d24497905e,1,reilly-theater-swine-palace,1,Reilly Theatre,,,,,Tower Dr.,70803,Baton Rouge,description,,,content,,,,US,,,,,,,"{'tag_has_category':'category','simple_tag':'None'}"
